@@ -7,7 +7,7 @@ from sendgrid.helpers.mail import Mail
 from openai import OpenAI
 
 # ---------------------------------------------------------
-# CONFIG – DAILY WATCHLIST (BROADER UNIVERSE)
+# CONFIG – WEEKLY WATCHLIST (BROAD UNIVERSE)
 # ---------------------------------------------------------
 
 WATCHLIST = [
@@ -47,6 +47,7 @@ WATCHLIST = [
     "META",
 ]
 
+# Thresholds – still useful to flag standouts in the week
 MIN_DAILY_MOVE_PCT = 2.0
 MIN_WEEKLY_MOVE_PCT = 5.0
 
@@ -58,6 +59,7 @@ MODEL_NAME = "gpt-4.1-mini"
 # ---------------------------------------------------------
 
 def fetch_market_data(tickers):
+    # Look back ~10 days to be safe (captures last week + a bit)
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=10)
 
@@ -78,6 +80,7 @@ def fetch_market_data(tickers):
             prev_price = float(prev["Close"])
             day_change_pct = ((price - prev_price) / prev_price) * 100
 
+            # approx 1-week change – 5 trading days back if available
             if len(hist) >= 6:
                 week_price = float(hist.iloc[-6]["Close"])
             else:
@@ -101,6 +104,7 @@ def fetch_market_data(tickers):
 
 
 def filter_significant_moves(market_data):
+    # Still flag big daily OR big weekly movers – for the “highlights” section
     return [
         item for item in market_data
         if abs(item["day_change_pct"]) >= MIN_DAILY_MOVE_PCT
@@ -109,15 +113,15 @@ def filter_significant_moves(market_data):
 
 
 # ---------------------------------------------------------
-# AI PROMPT BUILDER
+# AI PROMPT BUILDER – NOW WEEKLY
 # ---------------------------------------------------------
 
 def build_ai_prompt(market_data, significant):
     today = datetime.now().strftime("%d %b %Y")
 
     snapshot_lines = []
-    snapshot_lines.append("Date: " + today + "\n")
-    snapshot_lines.append("WATCHLIST SNAPSHOT:")
+    snapshot_lines.append("Week ending: " + today + "\n")
+    snapshot_lines.append("WATCHLIST SNAPSHOT (PRICE / DAY / WEEK):")
 
     for item in market_data:
         snapshot_lines.append(
@@ -131,7 +135,7 @@ def build_ai_prompt(market_data, significant):
         )
 
     snapshot_lines.append("")
-    snapshot_lines.append("SIGNIFICANT MOVES:")
+    snapshot_lines.append("SIGNIFICANT WEEKLY MOVES (FILTERED):")
     if significant:
         for item in significant:
             snapshot_lines.append(
@@ -150,24 +154,38 @@ def build_ai_prompt(market_data, significant):
     system_msg = (
         "You are an investment research assistant for a senior marketing and commercial leader. "
         "He thinks like a CIO: in themes, risk, and capital allocation. "
-        "This is a DAILY briefing—focus on directional tone, near-term rotations, "
-        "accumulation vs de-risking, and leadership vs fatigue. "
+        "This is a WEEKLY briefing — focus on what happened across the last trading week: "
+        "leadership vs laggards, rotations between sectors and styles, and where momentum "
+        "is building or fading. "
         "Never give buy/sell advice. Use language like: accumulation trend, fatigue, "
         "rotation out of, momentum building, de-risking zone, structural uptrend."
     )
 
     user_msg = (
-        "Below is the snapshot of the full watchlist.\n\n"
+        "Below is the snapshot of the full watchlist with daily and weekly % moves.\n\n"
         + snapshot_text
         + "\n\n"
-        "Write a DAILY CIO-style market pulse using this structure:\n\n"
-        "1. Big Picture Direction (Today)\n"
-        "2. Directional Signals on Watchlist\n"
-        "3. Today’s Key Themes & Rotations\n"
-        "4. Short-Term De-risking Zones\n"
-        "5. Strategic Questions\n"
-        "6. Closing Daily Wrap\n\n"
-        "Keep it directional, not advisory. Make it sharp and mobile-friendly.\n"
+        "Write a WEEKLY CIO-style market summary using this structure:\n\n"
+        "1. Weekly Market Mood (5-day tone)\n"
+        "   - Summarise whether the week felt risk-on, risk-off, or mixed.\n\n"
+        "2. Leadership & Laggards (Week-on-week)\n"
+        "   - Call out which indices, sectors, and names led or lagged over the week.\n\n"
+        "3. Rotations & Style Shifts\n"
+        "   - Describe any rotations between growth vs value, defensives vs cyclicals, "
+        "     tech vs energy, domestic vs global, etc.\n\n"
+        "4. Structural & Thematic Moves\n"
+        "   - Highlight any structural themes (AI, energy, yields, property, banks) "
+        "     where the week reinforced or challenged the existing narrative.\n\n"
+        "5. De-risking & Accumulation Zones\n"
+        "   - Identify areas showing de-risking behaviour vs quiet accumulation, "
+        "     using directional language only (no advice).\n\n"
+        "6. Watchlist Highlights for Next Week\n"
+        "   - 3–5 bullets on what is worth watching into the coming week based on "
+        "     this week's moves.\n\n"
+        "Rules:\n"
+        "- This is a WEEKLY note, not daily noise.\n"
+        "- Do NOT give explicit recommendations or portfolio advice.\n"
+        "- Keep it sharp, mobile-friendly, and written like an internal CIO wrap.\n"
     )
 
     return system_msg, user_msg
@@ -218,7 +236,7 @@ def main():
     print("Generating email...")
     body = generate_email(system_msg, user_msg)
 
-    subject = "Daily Market Scan – CIO Pulse ({})".format(
+    subject = "Weekly Market Scan – CIO Pulse (week ending {})".format(
         datetime.now().strftime("%d %b %Y")
     )
 
